@@ -249,30 +249,41 @@ class Chef
                'Ebs.DeleteOnTermination' => delete_term
              }]
         end
-        server = nil
+        
+        # check the server isn't allready running
+        server = connection.servers.find{|server| server.tags['Nodename'] == config[:chef_node_name]}
+        if server.nil?
 
-        # create a spot instance
-        if config[:price]
-          spot_request_def = { :price => config[:price] }
-          spot_request_def.merge!(server_def)
-          spot_request = connection.spot_requests.create(spot_request_def)
-          puts "\n"
-          puts "#{ui.color("Instance ID", :cyan)}: #{spot_request.id}"
-          puts "#{ui.color("Request Type", :cyan)}: #{spot_request.request_type}"
-          puts "#{ui.color("Price", :cyan)}: #{spot_request.price}"
-          print "\n#{ui.color("Waiting for spot request", :magenta)}"
-          spot_request.wait_for { print "."; state == 'active' }
-          puts("\n")
+          # create a spot instance
+          if config[:price]
+            spot_request_def = { :price => config[:price] }
+            spot_request_def.merge!(server_def)
+            spot_request = connection.spot_requests.create(spot_request_def)
+            puts "\n"
+            puts "#{ui.color("Instance ID", :cyan)}: #{spot_request.id}"
+            puts "#{ui.color("Request Type", :cyan)}: #{spot_request.request_type}"
+            puts "#{ui.color("Price", :cyan)}: #{spot_request.price}"
+            print "\n#{ui.color("Waiting for spot request", :magenta)}"
+            spot_request.wait_for { print "."; state == 'active' }
+            puts("\n")
           
-          server = connection.servers.get(spot_request.instance_id)
+            server = connection.servers.get(spot_request.instance_id)
 
-        # create on demand instance
-        else
-          server = connection.servers.create(server_def)
+          # create on demand instance
+          else
+            server = connection.servers.create(server_def)
+          end
+        
+        else # verify the node is not configured
+          raise "#{config[:chef_node_name]} has allready been configured" unless server.tags['Bootstraped'] == 'false'
         end
-
+        
+        
         # name node consistently with chef node name
-        connection.tags.create(:key => 'Name', :value => config[:chef_node_name], :resource_id => server.identity)
+        connection.tags.create(:key => 'Name', :value => "(#{config[:environment]}) #{config[:chef_node_name]}", :resource_id => server.identity)
+        connection.tags.create(:key => 'Nodename', :value => config[:chef_node_name], :resource_id => server.identity)
+        connection.tags.create(:key => 'Environment', :value => config[:environment], :resource_id => server.identity)
+        connection.tags.create(:key => 'Bootstraped', :value => 'false', :resource_id => server.identity)
         server.reload
 
         puts "#{ui.color("Name", :cyan)}: #{server.tags['Name']}"
@@ -320,12 +331,12 @@ class Chef
         bootstrap_for_node(server).run
 
         puts "\n"
-        puts "#{ui.color("Name", :cyan)}: #{server.tags['Name']}"
+        puts "#{ui.color("Name", :cyan)}: #{server.tags['Nodename']}"
         puts "#{ui.color("Instance ID", :cyan)}: #{server.id}"
         puts "#{ui.color("Flavor", :cyan)}: #{server.flavor_id}"
         puts "#{ui.color("Image", :cyan)}: #{server.image_id}"
         puts "#{ui.color("Availability Zone", :cyan)}: #{server.availability_zone}"
-        puts "#{ui.color("Security Groups", :cyan)}: #{server.groups.join(", ")}"
+        puts "#{ui.color("Security Groups", :cyan)}: #{server.groups.first}"
         if vpc_mode?
           puts "#{ui.color("Subnet ID", :cyan)}: #{server.subnet_id}"
         else
@@ -352,6 +363,7 @@ class Chef
         end
         puts "#{ui.color("Environment", :cyan)}: #{config[:environment] || '_default'}"
         puts "#{ui.color("Run List", :cyan)}: #{config[:run_list].join(', ')}"
+        connection.tags.create(:key => 'Bootstraped', :value => 'true', :resource_id => server.identity)
       end
 
       def bootstrap_for_node(server)

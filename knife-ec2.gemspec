@@ -15,7 +15,7 @@ Gem::Specification.new do |s|
 
   s.add_dependency "fog", "~> 0.10.0"
   s.add_dependency "net-ssh", "~> 2.1.3"
-  s.add_dependency "net-ssh-multi", "~> 1.0.1"
+  s.add_dependency "net-ssh-multi", ">= 1.0.1"
   s.require_path = 'lib'
   s.files = %w(LICENSE README.rdoc) + Dir.glob("lib/**/*")
 end
